@@ -1,0 +1,16 @@
+[package]
+name = "carbonos-init"
+version = "0.1.0"
+edition = "2021"
+description = "CarbonOS PID 1: mount virtual filesystems and supervise the shell"
+
+[[bin]]
+name = "carbonos-init"
+path = "src/main.rs"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

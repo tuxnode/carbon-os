@@ -13,11 +13,12 @@ KERNEL_SRC   := $(PROJECT_ROOT)/vendor/linux
 MUSL_SRC     := $(PROJECT_ROOT)/vendor/musl
 UUTILS_SRC   := $(PROJECT_ROOT)/vendor/uutils
 BRUSH_SRC    := $(PROJECT_ROOT)/vendor/brush
+INIT_DIR     := $(PROJECT_ROOT)/init
 SYSROOT_DIR  := $(BUILD_DIR)/sysroot
 
-.PHONY: all kernel musl userland brush rootfs run-qemu clean distclean
+.PHONY: all kernel musl userland brush init rootfs run-qemu clean distclean
 
-all: kernel userland brush rootfs
+all: kernel userland brush init rootfs
 	@echo "===================================================="
 	@echo " CarbonOS ($(TARGET_ARCH)) Build Complete!"
 	@echo " Output directory: $(BUILD_DIR)/"
@@ -72,8 +73,16 @@ brush: musl
 		CARGO_TARGET_RISCV64GC_UNKNOWN_LINUX_MUSL_RUSTFLAGS="-C target-feature=+crt-static" \
 		cargo build --release --target $(RUST_TARGET) -p brush-shell
 
+# CarbonOS init (PID 1)
+init:
+	@echo "==> Building CarbonOS init ($(RUST_TARGET))..."
+	cd $(INIT_DIR) && \
+		CARGO_TARGET_RISCV64GC_UNKNOWN_LINUX_MUSL_LINKER="$(LLD)" \
+		CARGO_TARGET_RISCV64GC_UNKNOWN_LINUX_MUSL_RUSTFLAGS="-C target-feature=+crt-static" \
+		cargo build --release --target $(RUST_TARGET)
+
 # rootfs
-rootfs: userland brush
+rootfs: userland brush init
 	@echo "==> Assembling Rootfs..."
 	rm -rf $(ROOTFS_DIR)
 	mkdir -p $(ROOTFS_DIR)/bin $(ROOTFS_DIR)/sbin $(ROOTFS_DIR)/etc/init.d \
@@ -109,9 +118,9 @@ rootfs: userland brush
 		exit 1; \
 	fi
 
-	@echo "==> Installing init (/sbin/init -> /etc/init.d/rcS)..."
-	ln -sf ../etc/init.d/rcS $(ROOTFS_DIR)/sbin/init
-	chmod +x $(ROOTFS_DIR)/etc/init.d/rcS
+	@echo "==> Installing init (/sbin/init)..."
+	cp $(INIT_DIR)/target/$(RUST_TARGET)/release/carbonos-init $(ROOTFS_DIR)/sbin/init
+	chmod +x $(ROOTFS_DIR)/sbin/init
 	
 	@echo "==> Packing Initramfs (cpio)..."
 	cd $(ROOTFS_DIR) && find . | cpio -o -H newc | gzip -9 > $(BUILD_DIR)/rootfs.cpio.gz
