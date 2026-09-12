@@ -1,0 +1,71 @@
+TARGET_ARCH  := @TARGET_ARCH@
+RUST_TARGET  := @RUST_TARGET@
+ENABLE_EROFS := @ENABLE_EROFS@
+CC           := @CC@
+LLD          := @LLD@
+
+PROJECT_ROOT := $(shell pwd)
+BUILD_DIR    := $(PROJECT_ROOT)/build
+ROOTFS_DIR   := $(BUILD_DIR)/rootfs
+KERNEL_SRC   := $(PROJECT_ROOT)/vendor/linux
+MUSL_SRC     := $(PROJECT_ROOT)/vendor/musl
+UUTILS_SRC   := $(PROJECT_ROOT)/vendor/uutils
+
+.PHONY: all kernel userland rootfs run-qemu clean distclean
+
+all: kernel userland rootfs
+	@echo "===================================================="
+	@echo " CarbonOS ($(TARGET_ARCH)) Build Complete!"
+	@echo " Output directory: $(BUILD_DIR)/"
+	@echo " Run 'make run-qemu' to test in simulator."
+	@echo "===================================================="
+
+# linux
+kernel:
+	@echo "==> Building Linux Kernel ($(TARGET_ARCH))..."
+	@mkdir -p $(BUILD_DIR)
+	@if [ ! -f $(KERNEL_SRC)/.config ]; then \
+		echo "    Generating default kernel config..."; \
+		$(MAKE) -C $(KERNEL_SRC) ARCH=riscv LLVM=1 defconfig; \
+	fi
+	$(MAKE) -C $(KERNEL_SRC) ARCH=riscv LLVM=1 -j$$(nproc) Image
+	cp $(KERNEL_SRC)/arch/riscv/boot/Image $(BUILD_DIR)/Image
+
+# musl and coreutils
+userland:
+	@echo "==> Building Rust uutils/coreutils ($(RUST_TARGET))..."
+	cd $(UUTILS_SRC) && cargo build --release --target $(RUST_TARGET) --features "musl"
+
+# rootfs
+rootfs:
+	@echo "==> Assembling Rootfs..."
+	rm -rf $(ROOTFS_DIR)
+	mkdir -p $(ROOTFS_DIR)/{bin,sbin,etc/init.d,proc,sys,dev,tmp,root}
+	cp -r overlay/* $(ROOTFS_DIR)/
+	cp $(UUTILS_SRC)/target/$(RUST_TARGET)/release/coreutils $(ROOTFS_DIR)/bin/
+	cd $(ROOTFS_DIR)/bin && ./coreutils --install -s . || true
+	chmod +x $(ROOTFS_DIR)/etc/init.d/rcS
+	
+	@echo "==> Packing Initramfs (cpio)..."
+	cd $(ROOTFS_DIR) && find . | cpio -o -H newc | gzip -9 > $(BUILD_DIR)/rootfs.cpio.gz
+	@if [ "$(ENABLE_EROFS)" = "yes" ]; then \
+		echo "==> Packing EROFS Image..."; \
+		mkfs.erofs -z lz4hc $(BUILD_DIR)/rootfs.erofs $(ROOTFS_DIR); \
+	fi
+
+run-qemu:
+	@echo "==> Launching CarbonOS (riscv64) in QEMU..."
+	qemu-system-riscv64 \
+		-M virt \
+		-cpu rv64 \
+		-m 512M \
+		-nographic \
+		-kernel $(BUILD_DIR)/Image \
+		-initrd $(BUILD_DIR)/rootfs.cpio.gz \
+		-append "console=ttyS0 rdinit=/sbin/init quiet"
+
+clean:
+	rm -rf $(BUILD_DIR)
+
+distclean: clean
+	rm -f Makefile config.status config.log

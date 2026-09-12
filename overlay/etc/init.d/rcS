@@ -1,0 +1,22 @@
+#!/bin/sh
+set -e
+
+# mount virtual fs
+mount -t proc none /proc
+mount -t sysfs none /sys
+mount -t devtmpfs none /dev
+mkdir -p /dev/pts
+mount -t devpts none /dev/pts
+
+mount -t tmpfs none /tmp
+mount -t tmpfs none /run
+
+hostname carbonos
+echo 0 > /proc/sys/kernel/hung_task_timeout_secs
+
+clear
+echo "========================================================"
+echo "      Welcome to CarbonOS (RISC-V 64 / Musl / Rust)     "
+echo "        Terminal-First Immutable Linux System           "
+echo "========================================================"
+echo ""
