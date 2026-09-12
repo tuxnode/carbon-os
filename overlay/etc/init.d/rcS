@@ -1,22 +1,33 @@
 #!/bin/sh
-set -e
+# CarbonOS early userspace init (PID 1, via rdinit=/sbin/init)
 
-# mount virtual fs
-mount -t proc none /proc
-mount -t sysfs none /sys
-mount -t devtmpfs none /dev
-mkdir -p /dev/pts
-mount -t devpts none /dev/pts
+# Mount a virtual filesystem if the mount tool is available.
+mount_fs() {
+	command -v mount >/dev/null 2>&1 || return 0
+	mkdir -p "$3"
+	mount -t "$1" "$2" "$3"
+}
 
-mount -t tmpfs none /tmp
-mount -t tmpfs none /run
+mount_fs proc     none /proc
+mount_fs sysfs    none /sys
+mount_fs devtmpfs none /dev
+mount_fs devpts   none /dev/pts
+mount_fs tmpfs    none /tmp
+mount_fs tmpfs    none /run
 
-hostname carbonos
-echo 0 > /proc/sys/kernel/hung_task_timeout_secs
+if command -v hostname >/dev/null 2>&1; then
+	hostname carbonos
+fi
 
-clear
+echo 0 > /proc/sys/kernel/hung_task_timeout_secs 2>/dev/null || true
+
 echo "========================================================"
 echo "      Welcome to CarbonOS (RISC-V 64 / Musl / Rust)     "
 echo "        Terminal-First Immutable Linux System           "
 echo "========================================================"
 echo ""
+
+# Hand off to an interactive shell once one is available.
+if [ -x /bin/sh ]; then
+	exec /bin/sh
+fi

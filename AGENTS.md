@@ -20,8 +20,8 @@ CarbonOS is a build-from-scratch immutable Linux distro (LLVM/Clang + musl + Rus
 - riscv64 is the only target actually wired up: the kernel target hardcodes `ARCH=riscv` and musl hardcodes `--target=riscv64-linux-musl`. `--with-target` only changes `RUST_TARGET` and the rustup target.
 - `make musl` configures musl with `--disable-shared` into `build/sysroot/usr`. The host LLVM has no riscv64 compiler-rt, so shared musl libs and `libc.so` cannot link; the static sysroot is enough for the Rust userland, which links against Rust's bundled musl.
 - `uutils` needs the musl headers in `build/sysroot` for its Oniguruma C dependency (`expr`); without `--sysroot` clang falls back to host `/usr/include` and fails with `__float128 is not supported on this target`.
-- `run-qemu` passes `rdinit=/sbin/init`, but the rootfs only installs `/etc/init.d/rcS` (no `/sbin/init`, and no `sh`/`mount`), so the current image will not reach `rcS` on boot.
-- `rootfs` runs `coreutils --install -s .` in `/bin`, but the binary is riscv64 and cannot execute on an x86_64 host; the `|| true` masks the failure, so no applet symlinks are created during a normal cross-build.
+- `rootfs` installs `/sbin/init` as a symlink to `/etc/init.d/rcS`, and `overlay/etc/init.d/rcS` guards `mount`/`hostname` so it runs without them. Boot still fails because the rootfs ships no `/bin/sh` (uutils has no shell) and no `mount`, so PID 1 cannot execute the script.
+- Applet symlinks are derived from uutils' generated `target/$(RUST_TARGET)/release/build/coreutils-*/out/uutils_map.rs` (the same list as `coreutils --list`) rather than GNU's `--install`, which uutils does not implement. The riscv64 `coreutils` binary cannot be executed on an x86_64 host; `qemu-riscv64` is only needed if you want to run it manually.
 - `vendor/{linux,musl,uutils}` are pinned submodules (linux v6.6.21, musl v1.2.5, uutils 0.11.0). `configure` shallow-inits them if absent. Never edit code under `vendor/`.
 - `packages/` and `scripts/` are empty placeholders.
 - `overlay/` is copied verbatim into the rootfs.

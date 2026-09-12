@@ -78,7 +78,18 @@ rootfs: userland
 		exit 1; \
 	fi
 	
-	cd $(ROOTFS_DIR)/bin && ./coreutils --install -s . || true
+	@echo "==> Creating coreutils applet symlinks..."
+	@UTILS_MAP=$$(ls -t $(UUTILS_SRC)/target/$(RUST_TARGET)/release/build/coreutils-*/out/uutils_map.rs 2>/dev/null | head -n1); \
+	if [ -z "$$UTILS_MAP" ]; then \
+		echo "Error: could not locate uutils_map.rs to derive applet names"; \
+		exit 1; \
+	fi; \
+	for util in $$(sed -n 's/^[[:space:]]*("\([^"]*\)".*/\1/p' "$$UTILS_MAP"); do \
+		ln -sf coreutils $(ROOTFS_DIR)/bin/"$$util"; \
+	done
+
+	@echo "==> Installing init (/sbin/init -> /etc/init.d/rcS)..."
+	ln -sf ../etc/init.d/rcS $(ROOTFS_DIR)/sbin/init
 	chmod +x $(ROOTFS_DIR)/etc/init.d/rcS
 	
 	@echo "==> Packing Initramfs (cpio)..."
