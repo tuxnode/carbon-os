@@ -1,3 +1,6 @@
 [submodule "vendor/linux"]
 	path = vendor/linux
 	url = https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git
+[submodule "vendor/uutils"]
+	path = vendor/uutils
+	url = https://github.com/uutils/coreutils.git
