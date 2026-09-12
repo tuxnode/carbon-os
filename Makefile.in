@@ -59,7 +59,8 @@ userland: musl
 		AR_riscv64gc_unknown_linux_musl="$(LLVM_AR)" \
 		CARGO_TARGET_RISCV64GC_UNKNOWN_LINUX_MUSL_LINKER="$(LLD)" \
 		BINDGEN_EXTRA_CLANG_ARGS="--target=riscv64-unknown-linux-musl --sysroot=$(SYSROOT_DIR)" \
-		cargo build --release --target $(RUST_TARGET)
+		cargo build --release --target $(RUST_TARGET) \
+		--features feat_Tier1,feat_require_unix_musl
 
 # brush shell (Rust, POSIX/bash compatible)
 brush: musl
