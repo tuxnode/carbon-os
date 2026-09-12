@@ -12,11 +12,12 @@ ROOTFS_DIR   := $(BUILD_DIR)/rootfs
 KERNEL_SRC   := $(PROJECT_ROOT)/vendor/linux
 MUSL_SRC     := $(PROJECT_ROOT)/vendor/musl
 UUTILS_SRC   := $(PROJECT_ROOT)/vendor/uutils
+BRUSH_SRC    := $(PROJECT_ROOT)/vendor/brush
 SYSROOT_DIR  := $(BUILD_DIR)/sysroot
 
-.PHONY: all kernel musl userland rootfs run-qemu clean distclean
+.PHONY: all kernel musl userland brush rootfs run-qemu clean distclean
 
-all: kernel userland rootfs
+all: kernel userland brush rootfs
 	@echo "===================================================="
 	@echo " CarbonOS ($(TARGET_ARCH)) Build Complete!"
 	@echo " Output directory: $(BUILD_DIR)/"
@@ -60,8 +61,18 @@ userland: musl
 		BINDGEN_EXTRA_CLANG_ARGS="--target=riscv64-unknown-linux-musl --sysroot=$(SYSROOT_DIR)" \
 		cargo build --release --target $(RUST_TARGET)
 
+# brush shell (Rust, POSIX/bash compatible)
+brush: musl
+	@echo "==> Building Rust brush shell ($(RUST_TARGET))..."
+	cd $(BRUSH_SRC) && \
+		CC_riscv64gc_unknown_linux_musl="$(CC) --target=riscv64-unknown-linux-musl --sysroot=$(SYSROOT_DIR)" \
+		AR_riscv64gc_unknown_linux_musl="$(LLVM_AR)" \
+		CARGO_TARGET_RISCV64GC_UNKNOWN_LINUX_MUSL_LINKER="$(LLD)" \
+		CARGO_TARGET_RISCV64GC_UNKNOWN_LINUX_MUSL_RUSTFLAGS="-C target-feature=+crt-static" \
+		cargo build --release --target $(RUST_TARGET) -p brush-shell
+
 # rootfs
-rootfs: userland
+rootfs: userland brush
 	@echo "==> Assembling Rootfs..."
 	rm -rf $(ROOTFS_DIR)
 	mkdir -p $(ROOTFS_DIR)/bin $(ROOTFS_DIR)/sbin $(ROOTFS_DIR)/etc/init.d \
@@ -87,6 +98,15 @@ rootfs: userland
 	for util in $$(sed -n 's/^[[:space:]]*("\([^"]*\)".*/\1/p' "$$UTILS_MAP"); do \
 		ln -sf coreutils $(ROOTFS_DIR)/bin/"$$util"; \
 	done
+
+	@echo "==> Installing brush shell..."
+	@if [ -f $(BRUSH_SRC)/target/$(RUST_TARGET)/release/brush ]; then \
+		cp $(BRUSH_SRC)/target/$(RUST_TARGET)/release/brush $(ROOTFS_DIR)/bin/brush; \
+		ln -sf brush $(ROOTFS_DIR)/bin/sh; \
+	else \
+		echo "Error: Could not find compiled brush binary in $(BRUSH_SRC)/target/$(RUST_TARGET)/release/"; \
+		exit 1; \
+	fi
 
 	@echo "==> Installing init (/sbin/init -> /etc/init.d/rcS)..."
 	ln -sf ../etc/init.d/rcS $(ROOTFS_DIR)/sbin/init
