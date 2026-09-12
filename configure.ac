@@ -99,6 +99,38 @@ if test "$ENABLE_EROFS" = "yes"; then
     fi
 fi
 
+# riscv compiler tools
+AC_CHECK_PROGS([CC], [clang], [none])
+if test "$CC" = "none"; then
+    AC_MSG_ERROR([clang is required for LLVM cross-compilation.])
+fi
+
+# 检查 LLD 链接器
+AC_CHECK_PROGS([LLD], [ld.lld], [none])
+if test "$LLD" = "none"; then
+    AC_MSG_ERROR([ld.lld (LLVM linker) is required.])
+fi
+
+# 检查 LLVM 交叉归档与索引工具 (Musl 静态库编译必须)
+AC_CHECK_PROGS([LLVM_AR], [llvm-ar], [none])
+if test "$LLVM_AR" = "none"; then
+    AC_MSG_ERROR([llvm-ar is required to pack Musl libc static library.])
+fi
+
+AC_CHECK_PROGS([LLVM_RANLIB], [llvm-ranlib], [none])
+if test "$LLVM_RANLIB" = "none"; then
+    AC_MSG_ERROR([llvm-ranlib is required for symbol indexing.])
+fi
+
+AC_CHECK_PROGS([LLVM_STRIP], [llvm-strip], [none])
+if test "$LLVM_STRIP" = "none"; then
+    AC_MSG_WARN([llvm-strip not found, binaries will not be stripped.])
+fi
+
+AC_SUBST([LLVM_AR])
+AC_SUBST([LLVM_RANLIB])
+AC_SUBST([LLVM_STRIP])
+
 AC_CONFIG_FILES([Makefile])
 AC_OUTPUT
 

@@ -1,6 +1,12 @@
-# build
+# build output
+/build/
 /Makefile
 /config.status
 /config.log
 /config.cache
-/.autom4te.cache/
+
+# autoconf
+/autom4te.cache/
+
+# editor / tool backups
+*~

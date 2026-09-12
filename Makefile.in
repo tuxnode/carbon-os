@@ -3,6 +3,8 @@ RUST_TARGET  := @RUST_TARGET@
 ENABLE_EROFS := @ENABLE_EROFS@
 CC           := @CC@
 LLD          := @LLD@
+LLVM_AR      := @LLVM_AR@
+LLVM_RANLIB  := @LLVM_RANLIB@
 
 PROJECT_ROOT := $(shell pwd)
 BUILD_DIR    := $(PROJECT_ROOT)/build
@@ -10,8 +12,9 @@ ROOTFS_DIR   := $(BUILD_DIR)/rootfs
 KERNEL_SRC   := $(PROJECT_ROOT)/vendor/linux
 MUSL_SRC     := $(PROJECT_ROOT)/vendor/musl
 UUTILS_SRC   := $(PROJECT_ROOT)/vendor/uutils
+SYSROOT_DIR  := $(BUILD_DIR)/sysroot
 
-.PHONY: all kernel userland rootfs run-qemu clean distclean
+.PHONY: all kernel musl userland rootfs run-qemu clean distclean
 
 all: kernel userland rootfs
 	@echo "===================================================="
@@ -31,18 +34,50 @@ kernel:
 	$(MAKE) -C $(KERNEL_SRC) ARCH=riscv LLVM=1 -j$$(nproc) Image
 	cp $(KERNEL_SRC)/arch/riscv/boot/Image $(BUILD_DIR)/Image
 
-# musl and coreutils
-userland:
+# musl libc (static sysroot; host LLVM lacks a riscv64 compiler-rt, so no shared libs)
+musl:
+	@echo "==> Cross-compiling Musl libc (C) for $(TARGET_ARCH)..."
+	@mkdir -p $(SYSROOT_DIR)
+	@if [ ! -f $(MUSL_SRC)/config.mak ]; then \
+		cd $(MUSL_SRC) && ./configure \
+			--target=riscv64-linux-musl \
+			--disable-shared \
+			--prefix=$(SYSROOT_DIR)/usr \
+			CC="$(CC) --target=riscv64-unknown-linux-musl -fuse-ld=lld" \
+			AR="$(LLVM_AR)" \
+			RANLIB="$(LLVM_RANLIB)"; \
+	fi
+	$(MAKE) -C $(MUSL_SRC) -j$$(nproc)
+	$(MAKE) -C $(MUSL_SRC) install
+
+# uutils coreutils
+userland: musl
 	@echo "==> Building Rust uutils/coreutils ($(RUST_TARGET))..."
-	cd $(UUTILS_SRC) && cargo build --release --target $(RUST_TARGET) --features "musl"
+	cd $(UUTILS_SRC) && \
+		CC_riscv64gc_unknown_linux_musl="$(CC) --target=riscv64-unknown-linux-musl --sysroot=$(SYSROOT_DIR)" \
+		AR_riscv64gc_unknown_linux_musl="$(LLVM_AR)" \
+		CARGO_TARGET_RISCV64GC_UNKNOWN_LINUX_MUSL_LINKER="$(LLD)" \
+		BINDGEN_EXTRA_CLANG_ARGS="--target=riscv64-unknown-linux-musl --sysroot=$(SYSROOT_DIR)" \
+		cargo build --release --target $(RUST_TARGET)
 
 # rootfs
-rootfs:
+rootfs: userland
 	@echo "==> Assembling Rootfs..."
 	rm -rf $(ROOTFS_DIR)
-	mkdir -p $(ROOTFS_DIR)/{bin,sbin,etc/init.d,proc,sys,dev,tmp,root}
+	mkdir -p $(ROOTFS_DIR)/bin $(ROOTFS_DIR)/sbin $(ROOTFS_DIR)/etc/init.d \
+		$(ROOTFS_DIR)/proc $(ROOTFS_DIR)/sys $(ROOTFS_DIR)/dev $(ROOTFS_DIR)/tmp $(ROOTFS_DIR)/root
 	cp -r overlay/* $(ROOTFS_DIR)/
-	cp $(UUTILS_SRC)/target/$(RUST_TARGET)/release/coreutils $(ROOTFS_DIR)/bin/
+	
+	@echo "==> Installing uutils/coreutils binary..."
+	@if [ -f $(UUTILS_SRC)/target/$(RUST_TARGET)/release/coreutils ]; then \
+		cp $(UUTILS_SRC)/target/$(RUST_TARGET)/release/coreutils $(ROOTFS_DIR)/bin/coreutils; \
+	elif [ -f $(UUTILS_SRC)/target/$(RUST_TARGET)/release/uutils ]; then \
+		cp $(UUTILS_SRC)/target/$(RUST_TARGET)/release/uutils $(ROOTFS_DIR)/bin/coreutils; \
+	else \
+		echo "Error: Could not find compiled coreutils binary in $(UUTILS_SRC)/target/$(RUST_TARGET)/release/"; \
+		exit 1; \
+	fi
+	
 	cd $(ROOTFS_DIR)/bin && ./coreutils --install -s . || true
 	chmod +x $(ROOTFS_DIR)/etc/init.d/rcS
 	
